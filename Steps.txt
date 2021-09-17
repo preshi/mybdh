@@ -1,0 +1,106 @@
+
+-----------------------------------------------------------------------------------------------------------------------------
+Cloudera:
+
+labuser
+labuserbdh
+
+
+MySQL
+
+root
+labuserbdh
+
+----------------------------------------------------------mysql----------------------------------------------------------------
+mysql -u root -p
+
+Create the Create Table using the statement
+
+Load Data into the table using the command given
+
+----------------------------------------------------------mysql----------------------------------------------------------------
+
+----------------------------------------------------------sqoop----------------------------------------------------------------
+sqoop import \
+ --connect jdbc:mysql://cdhserver/mysql \
+ --username root \
+ --password labuserbdh \
+ --table zomato \
+ --columns “id,name,online,book_table,rating,rest_type,cuisines,appr_cost,city” \
+ --where "appr_cost >=400" \
+ --target-dir user/labuser/Sqoop \
+ --m 2
+ --driver com.mysql.jdbc.Driver
+
+hdfs dfs --cat hdfs:/user/labuser/Sqoop/part* | wc -l >output1.txt
+hdfs dfs --cat hdfs:/user/labuser/Sqoop/part* > output2.txt
+
+
+
+
+-------------------------------------------------------------------PIG---------------------------------------------------------------------------------------
+input =LOAD 'hdfs:user/labuser/Sqoop' using PigStorage(',') AS (id:int, name:chararray,online:chararray,book_table:chararray,rating:int,rest_type:chararray,
+cuisines:chararray,appr_cost:int,city:chararray)
+grouped_in=GROUP input BY city
+Result = FOREACH grouped_in GENERATE group,MAX(input.appr_cost) AS maxcost
+STORE Result INTO 'hdfs:user/labuser/pigoutput' USING PigStorage(',');
+
+Do cd to Desktop/Project/wings-zomato-challenge/ and run the below command
+
+hdfs dfs -cat 'hdfs:user/labuser/pigoutput'> output3.txt
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+--------------------------------------------------------------------HIVE---------------------------------------------------------------------------------------
+
+CREATE DATABASE zomato;
+USE zomato;
+
+
+1.Step 1:Creating an Internal Table with Partition
+CREATE TABLE IF NOT EXISTS zomato_table (id:INT, name:STRING,online:STRING,book_table:STRING,rating:INT,rest_type:STRING,cuisines:STRING,appr_cost:INT,city:STRING) 
+partitioned by (rest_type)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ‘,’
+COLLECTION ITEMS TERMINATED BY ':'
+LINES TERMINATED BY '\n' STORED AS TEXTFILE;
+
+
+--This is intermediate table. Note that, table is not partitioned.
+CREATE TABLE IF NOT EXISTS zomato_table_inter (id:INT, name:STRING,online:STRING,book_table:STRING,rating:INT,rest_type:STRING,cuisines:STRING,appr_cost:INT,city:STRING) 
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ‘,’
+COLLECTION ITEMS TERMINATED BY ':'
+LINES TERMINATED BY '\n' STORED AS TEXTFILE;
+
+LOAD DATA LOCAL INPATH 'hdfs:/user/labuser/Sqoop' INTO TABLE zomato_table_inter;
+
+
+Enable properties for the partition:Hive Properties to allows all partitions to be dynamic
+
+set hive.exec.dynamic.partition=true;    
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+
+insert overwrite table zomato_table partition(rest_type) select * from zomato_table_inter;
+
+CREATE EXTERNAL TABLE IF NOT EXISTS zomato_ext (id:INT, name:STRING,online:STRING,book_table:STRING,rating:INT,rest_type:STRING,cuisines:STRING,appr_cost:INT,city:STRING)
+ROW FORMAT DELIMITED 
+FIELDS TERMINATED BY ‘,’
+COLLECTION ITEMS TERMINATED BY ':'
+LINES TERMINATED BY '\n' STORED AS TEXTFILE;
+
+LOAD DATA LOCAL INPATH 'hdfs:/user/labuser/Sqoop' INTO TABLE zomato_ext;
+
+hdfs dfs -ls /user/hive/warehouse
+hdfs dfs -ls /user/hive/warehouse/zomato.db
+
+
+
+export HIVE_SKIP_SPARK_ASSEMBLY=true
+
+hive S -e "use zomato;select rest_type,rest_name,cuisines from weathr where cuisines=italian;">output.txt
+
+
+hive S -e "use zomato;select rest_type,rest_name,rate from weathr where rating>=italian;">output.txt
